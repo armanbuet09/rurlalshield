@@ -1,0 +1,40 @@
+{
+  "name": "rural-shield",
+  "version": "0.1.0",
+  "description": "RuralShield: an open-source AWS CDK framework that gives rural, critical-access and other resource-constrained healthcare organizations a secure-by-default, serverless, AI-assisted security platform with zero servers to patch.",
+  "license": "Apache-2.0",
+  "keywords": ["aws-cdk", "healthcare", "hipaa", "security", "serverless", "guardduty", "bedrock", "rural-health"],
+  "bin": { "rural-shield": "bin/rural-shield.js" },
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "synth": "cdk synth --all",
+    "verify:local": "ts-node --prefer-ts-exts scripts/verify-local.ts",
+    "preflight:aws": "ts-node --prefer-ts-exts scripts/preflight-aws.ts",
+    "smoke:model": "ts-node --prefer-ts-exts scripts/smoke-model.ts",
+    "deploy": "cdk deploy --all --require-approval broadening",
+    "diff": "cdk diff --all",
+    "nag-report": "cdk synth --all --quiet && ls cdk.out/*NagReport*.csv",
+    "lint:py": "python3 -m compileall -q src/lambda",
+    "test:py": "python3 -m unittest discover -s src/lambda/triage -p 'test_*.py'"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.15.0",
+    "aws-cdk": "^2.1000.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.6.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.200.0",
+    "cdk-nag": "^2.36.0",
+    "constructs": "^10.4.2",
+    "js-yaml": "^4.1.0"
+  }
+}

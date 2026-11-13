@@ -1,0 +1,71 @@
+# RuralShield operator configuration
+# Copy to rural-shield.yaml, edit, then run:  npx cdk deploy --all
+# Every security control below defaults to ON. You can only *add* exposure deliberately.
+
+organization:
+  name: "Prairie View Critical Access Hospital"
+  environment: prod                      # dev | staging | prod
+  contactEmail: it-director@example.org  # alerts, approval requests, weekly plain-English report
+  # secondaryContactEmail: oncall@example.org
+  region: us-east-2
+  # account: "123456789012"              # optional; defaults to the CLI's account
+
+workload:
+  name: patient-portal-api
+  handlesPhi: true
+  allowedOrigins: ["https://portal.example.org"]
+  allowInternetEgress: false             # true adds NAT gateways (~$32/mo each); default is VPC-endpoints-only
+  compute:
+    type: lambda                         # lambda | container
+    codePath: ./examples/sample-app      # your code, bundled on deploy
+    handler: app.handler
+    runtime: python3.12
+    memoryMb: 512
+    timeoutSeconds: 15
+    reservedConcurrency: 50
+    environment:
+      LOG_LEVEL: INFO
+    # ---- container alternative (Fargate behind HTTPS ALB + WAF) ----
+    # type: container
+    # image: 123456789012.dkr.ecr.us-east-2.amazonaws.com/portal:1.4.2
+    # containerPort: 8080
+    # cpu: 512
+    # memoryMb: 1024
+    # desiredCount: 2
+    # domainName: portal.example.org
+    # certificateArn: arn:aws:acm:us-east-2:123456789012:certificate/....
+  data:
+    dynamodb: true                       # KMS-encrypted, PITR, deletion protection, in AWS Backup
+    aurora: false                        # Aurora Serverless v2 PostgreSQL (TLS forced, IAM auth, rotation)
+    auroraEngineVersion: "16.4"
+    auroraMinAcu: 0.5                    # 0 = auto-pause when idle (cheapest for small clinics)
+    auroraMaxAcu: 4
+    phiBucket: true                      # Object Lock (WORM), Macie discovery, GuardDuty malware scan on upload
+
+security:
+  threatDetection:
+    guardDuty: true                      # + Extended Threat Detection, Lambda/S3/RDS protection plans
+    securityHub: true                    # AFSBP + CIS + NIST 800-53 r5 standards
+    inspector: true                      # Lambda code & dependency vulns, ECR images
+    macie: true                          # automated sensitive-data discovery scoped to this account
+    s3MalwareProtection: true
+  aiTriage:
+    enabled: true
+    modelId: openai.gpt-oss-20b-1:0        # direct regional Bedrock model; no cross-region profile
+    autoContainment: true                # only reversible, allow-listed actions (see src/lambda/triage/policy.py)
+    approvalTimeoutHours: 24
+    minimumSeverity: HIGH                # MEDIUM | HIGH | CRITICAL
+  resilience:
+    backupRetentionDays: 35              # vault-locked (WORM) recovery points
+    drRegion: us-west-2                  # cross-region immutable copies + PHI replication; omit for single-region
+    restoreTesting: true                 # weekly automated restore test (HIPAA NPRM 72-hour restoration)
+  compliance:
+    configRules: true                    # HIPAA-aligned AWS Config managed rules
+    weeklyReport: true                   # Monday 9am plain-English posture report via e-mail
+    appLogRetentionYears: 1
+  existingResources:                     # set true for any singleton that already exists in this account/region
+    guardDutyDetector: false
+    configRecorder: false
+    securityHub: false
+    macieSession: false
+    cloudTrail: false

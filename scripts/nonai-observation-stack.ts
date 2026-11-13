@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+/** Separate measurement instrumentation; never enables Sentinel or changes workload authentication. */
+import * as cdk from 'aws-cdk-lib';
+import {ManagedRolePolicies} from '../lib/aspects/managed-policies';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as kms from 'aws-cdk-lib/aws-kms';
+import * as secrets from 'aws-cdk-lib/aws-secretsmanager';
+import * as logs from 'aws-cdk-lib/aws-logs';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as sqs from 'aws-cdk-lib/aws-sqs';
+const app=new cdk.App({outdir:'cdk.out/observation-synth'});
+cdk.Aspects.of(app).add(new ManagedRolePolicies(),{priority:cdk.AspectPriority.MUTATING});
+const stack=new cdk.Stack(app,'RuralShield-NonAiObservation',{env:{account:'123456789012',region:'us-east-2'},description:'Synthetic non-AI five-day measurement instrumentation; workload is separate'});
+const key=kms.Key.fromKeyArn(stack,'Key','arn:aws:kms:us-east-2:123456789012:key/00000000-0000-4000-8000-000000000000');
+const evidence=new s3.Bucket(stack,'Evidence',{encryption:s3.BucketEncryption.KMS,encryptionKey:key,bucketKeyEnabled:true,enforceSSL:true,blockPublicAccess:s3.BlockPublicAccess.BLOCK_ALL,versioned:true,removalPolicy:cdk.RemovalPolicy.RETAIN});
+const secret=new secrets.Secret(stack,'SyntheticAuth',{secretName:'ruralshield/nonai-observation-auth',encryptionKey:key,removalPolicy:cdk.RemovalPolicy.RETAIN});
+const group=new logs.LogGroup(stack,'Logs',{encryptionKey:key,retention:logs.RetentionDays.ONE_MONTH,removalPolicy:cdk.RemovalPolicy.RETAIN});
+const dlq=new sqs.Queue(stack,'Dlq',{encryption:sqs.QueueEncryption.KMS,encryptionMasterKey:key,enforceSSL:true});
+const role=new iam.Role(stack,'RunnerRole',{assumedBy:new iam.ServicePrincipal('lambda.amazonaws.com')});
+evidence.grantRead(role,'control/manifest.json');evidence.grantPut(role,'claims/*');evidence.grantPut(role,'minutes/*');evidence.grantPut(role,'control/*');secret.grantRead(role);group.grantWrite(role);key.grantEncryptDecrypt(role);dlq.grantSendMessages(role);
+const ruleName='ruralshield-nonai-five-day';
+role.addToPrincipalPolicy(new iam.PolicyStatement({actions:['events:DisableRule'],resources:[`arn:aws:events:${stack.region}:${stack.account}:rule/${ruleName}`]}));
+const fn=new lambda.Function(stack,'Runner',{runtime:lambda.Runtime.NODEJS_22_X,architecture:lambda.Architecture.ARM_64,handler:'index.handler',code:lambda.Code.fromAsset('cdk.out/observation-asset'),role,logGroup:group,timeout:cdk.Duration.seconds(55),memorySize:512,reservedConcurrentExecutions:1,deadLetterQueue:dlq,environmentEncryption:key,environment:{EVIDENCE_BUCKET:evidence.bucketName,AUTH_SECRET:secret.secretArn,RULE_NAME:ruleName},retryAttempts:0});
+const rule=new events.Rule(stack,'Schedule',{ruleName,enabled:false,schedule:events.Schedule.rate(cdk.Duration.minutes(1))});
+rule.addTarget(new targets.LambdaFunction(fn,{retryAttempts:0,deadLetterQueue:dlq}));
+new cdk.CfnOutput(stack,'EvidenceBucket',{value:evidence.bucketName});new cdk.CfnOutput(stack,'AuthSecretArn',{value:secret.secretArn});new cdk.CfnOutput(stack,'RunnerName',{value:fn.functionName});new cdk.CfnOutput(stack,'RuleName',{value:ruleName});
+cdk.Tags.of(stack).add('rural-shield:purpose','non-AI measurement');app.synth();
